@@ -157,14 +157,14 @@ def try_float(arg):
 class MAD8FileFormatError(Exception): pass
     
 def read_survey(survey):
-    df = pd.DataFrame(columns=(COMMON_COLUMNS + SURVEY_COLUMNS))
-
+    dictionary = {} # The data to be read in and converted to a DataFrame
+    metadata = {}
     with open(survey, "r") as f:
         d = parse_header(f.readline(), f.readline())
 
-        df.attrs.update(d)
+        metadata.update(d)
 
-        nrecords = df.attrs["npos"]
+        nrecords = metadata["npos"]
 
         if d["datatype"] != "SURVEY":
             raise MAD8FileFormatError(f"Not a SURVEY file: {f.name}")
@@ -182,18 +182,23 @@ def read_survey(survey):
 
             row = fill_survey_row(line1, line2, line3, line4)
 
-            df = df.append(row, ignore_index=True)
+            dictionary[i] = row
 
         trailer1 = ffe4.read(f.readline())
         trailer2 = ffe4.read(f.readline())
 
-        df.attrs["x_centre"] = trailer1[0]
-        df.attrs["y_centre"] = trailer1[1]
-        df.attrs["z_centre"] = trailer1[2]
+        metadata["x_centre"] = trailer1[0]
+        metadata["y_centre"] = trailer1[1]
+        metadata["z_centre"] = trailer1[2]
 
-        df.attrs["rmin"] = trailer2[0]
-        df.attrs["rmax"] = trailer2[1]
-        df.attrs["circumference"] = trailer2[2]
+        metadata["rmin"] = trailer2[0]
+        metadata["rmax"] = trailer2[1]
+        metadata["circumference"] = trailer2[2]
+
+
+    df = pd.DataFrame.from_dict(dictionary, orient="index",
+                                columns=COMMON_COLUMNS + SURVEY_COLUMNS)
+    df.attrs.update(metadata)
 
     return df
 
@@ -231,5 +236,5 @@ def parse_header(header_line_1, header_line_2):
 
 if __name__ == "__main__":
     df = read(sys.argv[1])
-    from IPython import embed; embed()
+
 
