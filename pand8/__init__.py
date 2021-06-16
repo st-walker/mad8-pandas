@@ -1,1 +1,1 @@
-from .handler import read_survey
+from .handler import read

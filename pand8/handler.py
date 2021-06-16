@@ -1,4 +1,5 @@
 import sys
+import contextlib
 
 import pandas as pd
 import fortranformat as ff
@@ -119,23 +120,33 @@ COMMON_COLUMN_POSITIONS = {
     "MATR": {"L": 0, "APER": 9, "E": 11},
 }
 
-def fill_survey_row(line1, line2, line3, line4):
-    keyword = line1[0].strip()
-    name = line1[1].strip()
+TWISS_KEYS = {
+    "ALFX": 0,
+    "BETX": 1,
+    "MUX": 2,
+    "DX": 3,
+    "DPX": 4,
+    "ALFY": 5,
+    "BETY": 6,
+    "MUY": 7,
+    "DY": 8,
+    "DPY": 9,
+    "X": 10,
+    "PX": 11,
+    "Y": 12,
+    "PY": 13,
+    "SUML": 14,
+}
 
-    row = {key: 0. for key in COMMON_COLUMNS + SURVEY_COLUMNS}
-    row["KEYWORD"] = keyword
-    row["NAME"] = name
-    row["NOTE"] = ""
 
-    if keyword == "":
-        return row
+def parse_survey_rows(line3, line4):
+    ffe3 = ff.FortranRecordReader("(4E16.9)")
+    ffe4 = ff.FortranRecordReader("(3E16.9)")
 
-    data = line1[2:6]+line2+[line1[6],line1[7],line1[8]]
-    keyword_columns = COMMON_COLUMN_POSITIONS[keyword]
+    line3 = ffe3.read(line3)
+    line4 = ffe3.read(line4)
 
-    for key, index in keyword_columns.items():
-        row[key] = data[index]
+    row = {}
 
     # Survey bits
     row["X"] = try_float(line3[0])
@@ -148,59 +159,164 @@ def fill_survey_row(line1, line2, line3, line4):
 
     return row
 
+
+def parse_twiss_row(line1, line2, line3):
+    ffr = ff.FortranRecordReader("(5E16.9)")
+    line1 = ffr.read(line1)
+    line2 = ffr.read(line2)
+    line3 = ffr.read(line3)
+
+    row = {}
+    all_lines = line1 + line2 + line3
+    for key, index in TWISS_KEYS.items():
+        with contextlib.suppress(TypeError, ValueError):
+            entry = float(all_lines[index])
+        row[key] = entry
+
+    return row
+
+
 def try_float(arg):
     try:
         return float(arg)
     except (TypeError, ValueError):
-        return args
+        return arg
 
-class MAD8FileFormatError(Exception): pass
-    
+
+class MAD8FileFormatError(Exception):
+    pass
+
+
+def read(path):
+    file_type = get_file_type(path)
+    if file_type == "TWISS":
+        return read_twiss(path)
+    elif file_type == "SURVEY":
+        return read_twiss(path)
+    elif file_type == "CHROM":
+        return read_chrom(path)
+    else:
+        raise MAD8FileFormatError(f"Unknown DATAVRSN: {file_type}")
+
+
+def get_file_type(path):
+    with open(path, "r") as f:
+        header = parse_header(f.readline(), f.readline())
+        return header["DATAVRSN"]
+
+
+def read_twiss(twiss):
+    assert get_file_type(twiss) == "TWISS"
+
+    twiss_rows = []
+    metadata = {}
+    with open(twiss, "r") as f:
+        d = parse_header(f.readline(), f.readline())
+        metadata.update(d)
+        nrecords = metadata["NPOS"]
+
+        for _ in range(nrecords):
+            row_common = parse_common_two_lines(f.readline(), f.readline())
+            row_twiss = parse_twiss_row(f.readline(), f.readline(), f.readline())
+
+            twiss_rows.append(row_common)
+            twiss_rows[-1].update(row_twiss)
+        metadata.update(parse_twiss_trailer(f.readline(), f.readline(), f.readline()))
+
+    return make_df(twiss_rows, metadata, list(TWISS_KEYS))
+
+
 def read_survey(survey):
-    dictionary = {} # The data to be read in and converted to a DataFrame
+    assert d["DATAVRSN"] == "SURVEY"
+    survey_rows = []  # The data to be read in and converted to a DataFrame
     metadata = {}
     with open(survey, "r") as f:
-        d = parse_header(f.readline(), f.readline())
+        metadata.update(parse_header(f.readline(), f.readline()))
 
-        metadata.update(d)
+        nrecords = metadata["NPOS"]
+        for _ in range(nrecords):
+            row_common = parse_common_two_lines(f.readline(), f.readline())
+            row_survey = parse_survey_row(line3, line4)
+            survey_dictionary.append(row_common)
+            survey_dictionary[-1].update(row_survey)
 
-        nrecords = metadata["npos"]
+        metadata.update(parse_survey_trailer(f.readline(), f.readline()))
 
-        if d["datatype"] != "SURVEY":
-            raise MAD8FileFormatError(f"Not a SURVEY file: {f.name}")
-
-        ffe1 = ff.FortranRecordReader("(A4,A16,F12.6,4E16.9,A19,E16.9)")
-        ffe2 = ff.FortranRecordReader("(5E16.9)")
-        ffe3 = ff.FortranRecordReader("(4E16.9)")
-        ffe4 = ff.FortranRecordReader("(3E16.9)")
-
-        for i in range(nrecords):
-            line1 = ffe1.read(f.readline())
-            line2 = ffe2.read(f.readline())
-            line3 = ffe3.read(f.readline())
-            line4 = ffe4.read(f.readline())
-
-            row = fill_survey_row(line1, line2, line3, line4)
-
-            dictionary[i] = row
-
-        trailer1 = ffe4.read(f.readline())
-        trailer2 = ffe4.read(f.readline())
-
-        metadata["x_centre"] = trailer1[0]
-        metadata["y_centre"] = trailer1[1]
-        metadata["z_centre"] = trailer1[2]
-
-        metadata["rmin"] = trailer2[0]
-        metadata["rmax"] = trailer2[1]
-        metadata["circumference"] = trailer2[2]
+    return _make_df(survey_rows, metadata, SURVEY_COLUMNS)
 
 
-    df = pd.DataFrame.from_dict(dictionary, orient="index",
-                                columns=COMMON_COLUMNS + SURVEY_COLUMNS)
+def make_df(rows, metadata, extra_columns):
+    index = list(range(len(rows)))
+    df = pd.DataFrame(rows, index=index, columns=COMMON_COLUMNS + extra_columns)
     df.attrs.update(metadata)
-
     return df
+
+
+def parse_common_two_lines(line1, line2):
+    line1 = ff.FortranRecordReader("(A4,A16,F12.6,4E16.9,A19,E16.9)").read(line1)
+    line2 = ff.FortranRecordReader("(5E16.9)").read(line2)
+
+    keyword = line1[0].strip()
+    name = line1[1].strip()
+
+    row = {key: 0.0 for key in COMMON_COLUMNS + SURVEY_COLUMNS}
+    row["KEYWORD"] = keyword
+    row["NAME"] = name
+    row["NOTE"] = ""
+
+    if keyword == "":
+        return row
+
+    data = line1[2:6] + line2 + [line1[6], line1[7], line1[8]]
+    keyword_columns = COMMON_COLUMN_POSITIONS[keyword]
+
+    for key, index in keyword_columns.items():
+        row[key] = data[index]
+
+    return row
+
+
+def parse_twiss_trailer(line1, line2, line3):
+    line1 = ff.FortranRecordReader("3E16.9").read(line1)
+    line2 = ff.FortranRecordReader("5E16.9").read(line2)
+    line3 = ff.FortranRecordReader("5E16.9").read(line3)
+
+    keys = [
+        "DELTAP",
+        "GAMTR",
+        "C",
+        "COSMUX",
+        "QX",
+        "QX'",
+        "BXMAX",
+        "DXMAX",
+        "COSMUY",
+        "QY",
+        "QY'",
+        "BYMAX",
+        "DYMAX",
+    ]
+
+    trailer = {}
+    all_lines = line1 + line2 + line3
+    for i, key in enumerate(keys):
+        trailer[key] = all_lines[i]
+    return trailer
+
+
+def parse_survey_trailer(line1, line2):
+    ffe4 = ff.FortranRecordReader("(3E16.9)")
+    metadata = {}
+
+    metadata["X"] = trailer1[0]
+    metadata["Y"] = trailer1[1]
+    metadata["Z"] = trailer1[2]
+
+    metadata["RMIN"] = trailer2[0]
+    metadata["RMAX"] = trailer2[1]
+    metadata["C"] = trailer2[2]
+
+    return metadata
 
 
 def parse_header(header_line_1, header_line_2):
@@ -211,18 +327,18 @@ def parse_header(header_line_1, header_line_2):
     header_line_2 = ffhr2.read(header_line_2)
 
     h1_names = [
-        "version",
-        "datatype",
-        "date",
-        "time",
-        "jobname",
-        "super",
-        "symm",
-        "npos",
+        "PROGVRSN",
+        "DATAVRSN",
+        "DATE",
+        "TIME",
+        "JOBNAME",
+        "SUPER",
+        "SYMM",
+        "NPOS",
     ]
 
     result = {name: data for name, data in zip(h1_names, header_line_1)}
-    result["title"] = header_line_2[0]
+    result["TITLE"] = header_line_2[0]
 
     # Strip any strings in the result
     for key, value in result.items():
@@ -236,5 +352,6 @@ def parse_header(header_line_1, header_line_2):
 
 if __name__ == "__main__":
     df = read(sys.argv[1])
+    from IPython import embed
 
-
+    embed()
