@@ -1,6 +1,7 @@
 import sys
 import contextlib
 
+import numpy as np
 import pandas as pd
 import fortranformat as ff
 
@@ -138,6 +139,46 @@ TWISS_KEYS = {
     "SUML": 14,
 }
 
+RMAT_KEYS = {
+    "R11": 0,
+    "R12": 1,
+    "R13": 2,
+    "R14": 3,
+    "R15": 4,
+    "R16": 5,
+    "R21": 6,
+    "R22": 7,
+    "R23": 8,
+    "R24": 9,
+    "R25": 10,
+    "R26": 11,
+    "R31": 12,
+    "R32": 13,
+    "R33": 14,
+    "R34": 15,
+    "R35": 16,
+    "R36": 17,
+    "R41": 18,
+    "R42": 19,
+    "R43": 20,
+    "R44": 21,
+    "R45": 22,
+    "R46": 23,
+    "R51": 24,
+    "R52": 25,
+    "R53": 26,
+    "R54": 27,
+    "R55": 28,
+    "R56": 29,
+    "R61": 30,
+    "R62": 31,
+    "R63": 32,
+    "R64": 33,
+    "R65": 34,
+    "R66": 35,
+    "SUML": 36,
+}
+
 
 def parse_survey_rows(line3, line4):
     ffe3 = ff.FortranRecordReader("(4E16.9)")
@@ -192,9 +233,11 @@ def read(path):
     if file_type == "TWISS":
         return read_twiss(path)
     elif file_type == "SURVEY":
-        return read_twiss(path)
+        return read_survey(path)
     elif file_type == "CHROM":
         return read_chrom(path)
+    elif file_type == "RMAT":
+        return read_rmat(path)
     else:
         raise MAD8FileFormatError(f"Unknown DATAVRSN: {file_type}")
 
@@ -205,7 +248,7 @@ def get_file_type(path):
         return header["DATAVRSN"]
 
 
-def read_twiss(twiss):
+def read_twiss(twiss, check=True):
     assert get_file_type(twiss) == "TWISS"
 
     twiss_rows = []
@@ -214,7 +257,8 @@ def read_twiss(twiss):
         d = parse_header(f.readline(), f.readline())
         metadata.update(d)
         nrecords = metadata["NPOS"]
-
+        # If this bombs it may be because nrecords isn't actually the number of
+        # nrecords, you may have a malformed/hand-edited TWISS file...
         for _ in range(nrecords):
             row_common = parse_common_two_lines(f.readline(), f.readline())
             row_twiss = parse_twiss_row(f.readline(), f.readline(), f.readline())
@@ -223,11 +267,12 @@ def read_twiss(twiss):
             twiss_rows[-1].update(row_twiss)
         metadata.update(parse_twiss_trailer(f.readline(), f.readline(), f.readline()))
 
-    return make_df(twiss_rows, metadata, list(TWISS_KEYS))
+    return _make_df(twiss_rows, metadata, list(TWISS_KEYS))
 
 
 def read_survey(survey):
-    assert d["DATAVRSN"] == "SURVEY"
+    assert get_file_type(survey) == "SURVEY"
+
     survey_rows = []  # The data to be read in and converted to a DataFrame
     metadata = {}
     with open(survey, "r") as f:
@@ -236,16 +281,57 @@ def read_survey(survey):
         nrecords = metadata["NPOS"]
         for _ in range(nrecords):
             row_common = parse_common_two_lines(f.readline(), f.readline())
-            row_survey = parse_survey_row(line3, line4)
-            survey_dictionary.append(row_common)
-            survey_dictionary[-1].update(row_survey)
+            row_survey = parse_survey_rows(f.readline(), f.readline())
+            survey_rows.append(row_common)
+            survey_rows[-1].update(row_survey)
 
         metadata.update(parse_survey_trailer(f.readline(), f.readline()))
 
     return _make_df(survey_rows, metadata, SURVEY_COLUMNS)
 
 
-def make_df(rows, metadata, extra_columns):
+def read_rmat(rmat):
+    assert get_file_type(rmat) == "RMAT"
+
+    rmat_rows = []
+    metadata = {}
+    with open(rmat, "r") as f:
+        metadata.update(parse_header(f.readline(), f.readline()))
+        nrecords = metadata["NPOS"]
+        for _ in range(nrecords):
+            row_common = parse_common_two_lines(f.readline(), f.readline())
+            row_rmat = parse_rmat_lines(n_readline(f, 6))
+
+            rmat_rows.append(row_common)
+            rmat_rows[-1].update(row_rmat)
+
+    return _make_df(rmat_rows, metadata, list(RMAT_KEYS))
+
+
+def parse_rmat_lines(lines):
+    lines = list(lines)
+    ff_1_to_5 = ff.FortranRecordReader("(6E16.9)")
+    ff_6 = ff.FortranRecordReader("(7E16.9)")
+
+    parsed = [ff_1_to_5.read(l) for l in lines]
+    parsed[-1] = ff_6.read(lines[-1])
+
+    flattened = [x for y in parsed for x in y]
+
+    row = {}
+    for key, index in RMAT_KEYS.items():
+        row[key] = float(flattened[index])
+
+    return row
+
+
+def n_readline(f, n):
+    assert n >= 0
+    for _ in range(n):
+        yield f.readline()
+
+
+def _make_df(rows, metadata, extra_columns):
     index = list(range(len(rows)))
     df = pd.DataFrame(rows, index=index, columns=COMMON_COLUMNS + extra_columns)
     df.attrs.update(metadata)
@@ -308,13 +394,31 @@ def parse_survey_trailer(line1, line2):
     ffe4 = ff.FortranRecordReader("(3E16.9)")
     metadata = {}
 
-    metadata["X"] = trailer1[0]
-    metadata["Y"] = trailer1[1]
-    metadata["Z"] = trailer1[2]
+    # RMIN RMAX missing for linacs.  circumference C is present for linacs but is
+    # actually just the linac length.  If it's a linac then RMIN and RMAX are missing as
+    # well, but if we parse using ffe4 then it will just set them to zero, which is
+    # wrong.  They should be None if they're missing.  So we test for this here.
+    circular = False
+    if len(line2.split()) == 3:
+        circular = True
 
-    metadata["RMIN"] = trailer2[0]
-    metadata["RMAX"] = trailer2[1]
-    metadata["C"] = trailer2[2]
+    line1 = ffe4.read(line1)
+    line2 = ffe4.read(line2)
+
+    # Missing the machine centre.  Missing for linacs.
+    metadata["X"] = line1[0]
+    metadata["Y"] = line1[1]
+    metadata["Z"] = line1[2]
+
+    if not circular:
+        metadata["RMIN"] = None
+        metadata["RMAX"] = None
+    else:
+        metadata["RMIN"] = line2[0]
+        metadata["RMAX"] = line2[1]
+
+    # Circumference or linac length.
+    metadata["C"] = line2[2]
 
     return metadata
 
@@ -348,10 +452,3 @@ def parse_header(header_line_1, header_line_2):
             pass
 
     return result
-
-
-if __name__ == "__main__":
-    df = read(sys.argv[1])
-    from IPython import embed
-
-    embed()
