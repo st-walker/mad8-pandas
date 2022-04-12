@@ -1,9 +1,10 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(
     name="mad8-pandas",
-    version="0.1.0",
+    version="0.1.1",
     description="load mad8 output with pandas",
+    packages=find_packages(include=["pand8"]),
     install_requires=["pandas", "fortranformat", "numpy"],
     url="https://github.com/st-walker/mad8-pandas",
     license="MIT",
