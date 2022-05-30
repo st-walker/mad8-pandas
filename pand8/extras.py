@@ -42,7 +42,8 @@ def fix_initial_row_energy(twiss_df):
     initial = twiss_df.iloc[0]
     nxt = twiss_df.iloc[1]
     if initial.E == 0.0:
-        initial.E = nxt.E
+        twiss_df.at[0, "E"] = nxt.E
+
 
 def append_s_column(twiss_df):
     return twiss_df.assign(S=twiss_df.SUML)
