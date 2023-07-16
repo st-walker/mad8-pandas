@@ -1,5 +1,6 @@
+import os
 import contextlib
-from typing import Optional, Union
+from typing import Optional, Any
 
 import pandas as pd
 import fortranformat as ff
@@ -39,7 +40,7 @@ COMMON_COLUMNS: list[str] = [
     "YSIZE",
 ]
 
-SURVEY_COLUMNS: str  = ["X", "Y", "Z", "SUML", "THETA", "PHI", "PSI"]
+SURVEY_COLUMNS: str = ["X", "Y", "Z", "SUML", "THETA", "PHI", "PSI"]
 
 
 COMMON_COLUMN_POSITIONS: dict[str, dict[str, int]] = {
