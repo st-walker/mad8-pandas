@@ -1,9 +1,10 @@
 import contextlib
+from typing import Optional, Union
 
 import pandas as pd
 import fortranformat as ff
 
-COMMON_COLUMNS = [
+COMMON_COLUMNS: list[str] = [
     "KEYWORD",
     "NAME",
     "ANGLE",
@@ -38,10 +39,10 @@ COMMON_COLUMNS = [
     "YSIZE",
 ]
 
-SURVEY_COLUMNS = ["X", "Y", "Z", "SUML", "THETA", "PHI", "PSI"]
+SURVEY_COLUMNS: str  = ["X", "Y", "Z", "SUML", "THETA", "PHI", "PSI"]
 
 
-COMMON_COLUMN_POSITIONS = {
+COMMON_COLUMN_POSITIONS: dict[str, dict[str, int]] = {
     "DRIF": {"L": 0, "APER": 9, "NOTE": 10, "E": 11},
     "RBEN": {
         "L": 0,
@@ -119,7 +120,7 @@ COMMON_COLUMN_POSITIONS = {
     "MATR": {"L": 0, "APER": 9, "E": 11},
 }
 
-TWISS_KEYS = {
+TWISS_KEYS: dict[str, int] = {
     "ALFX": 0,
     "BETX": 1,
     "MUX": 2,
@@ -137,7 +138,7 @@ TWISS_KEYS = {
     "SUML": 14,
 }
 
-RMAT_KEYS = {
+RMAT_KEYS: dict[str, int] = {
     "R11": 0,
     "R12": 1,
     "R13": 2,
@@ -178,7 +179,7 @@ RMAT_KEYS = {
 }
 
 
-def parse_survey_rows(line3, line4):
+def parse_survey_rows(line3: str, line4: str) -> dict[str, Any]:
     ffe3 = ff.FortranRecordReader("(4E16.9)")
 
     line3 = ffe3.read(line3)
@@ -198,7 +199,7 @@ def parse_survey_rows(line3, line4):
     return row
 
 
-def parse_twiss_row(line1, line2, line3):
+def parse_twiss_row(line1: str, line2: str, line3: str) -> dict[str, Any]:
     ffr = ff.FortranRecordReader("(5E16.9)")
     line1 = ffr.read(line1)
     line2 = ffr.read(line2)
@@ -214,7 +215,7 @@ def parse_twiss_row(line1, line2, line3):
     return row
 
 
-def try_float(arg):
+def try_float(arg: Any) -> Any:
     try:
         return float(arg)
     except (TypeError, ValueError):
@@ -225,7 +226,7 @@ class MAD8FileFormatError(Exception):
     pass
 
 
-def read(path):
+def read(path: os.PathLike) -> pd.DataFrame:
     file_type = get_file_type(path)
     if file_type == "TWISS":
         return read_twiss(path)
@@ -239,13 +240,13 @@ def read(path):
         raise MAD8FileFormatError(f"Unknown DATAVRSN: {file_type}")
 
 
-def get_file_type(path):
+def get_file_type(path: os.PathLike) -> str:
     with open(path, "r") as f:
         header = parse_header(f.readline(), f.readline())
         return header["DATAVRSN"]
 
 
-def read_twiss(twiss, check=True):
+def read_twiss(twiss: os.PathLike, check: Optional[bool] = True) -> pd.DataFrame:
     assert get_file_type(twiss) == "TWISS"
 
     twiss_rows = []
@@ -267,7 +268,7 @@ def read_twiss(twiss, check=True):
     return _make_df(twiss_rows, metadata, list(TWISS_KEYS))
 
 
-def read_survey(survey):
+def read_survey(survey: os.PathLike) -> pd.DataFrame:
     assert get_file_type(survey) == "SURVEY"
 
     survey_rows = []  # The data to be read in and converted to a DataFrame
@@ -287,7 +288,7 @@ def read_survey(survey):
     return _make_df(survey_rows, metadata, SURVEY_COLUMNS)
 
 
-def read_rmat(rmat):
+def read_rmat(rmat: os.PathLike) -> pd.DataFrame:
     assert get_file_type(rmat) == "RMAT"
 
     rmat_rows = []
@@ -305,11 +306,11 @@ def read_rmat(rmat):
     return _make_df(rmat_rows, metadata, list(RMAT_KEYS))
 
 
-def read_chrom(path):
+def read_chrom(path: os.PathLike) -> pd.DataFrame:
     raise NotImplementedError("CHROM loading is not supported")
 
 
-def parse_rmat_lines(lines):
+def parse_rmat_lines(lines: list[str]) -> dict[str, float]:
     lines = list(lines)
     ff_1_to_5 = ff.FortranRecordReader("(6E16.9)")
     ff_6 = ff.FortranRecordReader("(7E16.9)")
@@ -326,7 +327,7 @@ def parse_rmat_lines(lines):
     return row
 
 
-def n_readline(f, n):
+def n_readline(f, n: int):
     assert n >= 0
     for _ in range(n):
         yield f.readline()
