@@ -1,7 +1,5 @@
-import sys
 import contextlib
 
-import numpy as np
 import pandas as pd
 import fortranformat as ff
 
@@ -108,7 +106,7 @@ COMMON_COLUMN_POSITIONS = {
     "MONI": {"L": 0, "APER": 9, "NOTE": 10, "E": 11},
     "HMONITOR": {"L": 0, "APER": 9, "NOTE": 10, "E": 11},
     "VMONITOR": {"L": 0, "APER": 9, "NOTE": 10, "E": 11},
-    "MARK": {"L": 0, "APER": 9, "NOTE": 10, "E": 11},
+    # "MARK": {"L": 0, "APER": 9, "NOTE": 10, "E": 11},
     "ECOL": {"L": 0, "XSIZE": 4, "YSIZE": 5, "APER": 9, "NOTE": 10, "E": 11},
     "RCOL": {"L": 0, "XSIZE": 4, "YSIZE": 5, "APER": 9, "NOTE": 10, "E": 11},
     "MARK": {"L": 0, "NOTE": 10, "E": 11},
@@ -182,7 +180,6 @@ RMAT_KEYS = {
 
 def parse_survey_rows(line3, line4):
     ffe3 = ff.FortranRecordReader("(4E16.9)")
-    ffe4 = ff.FortranRecordReader("(3E16.9)")
 
     line3 = ffe3.read(line3)
     line4 = ffe3.read(line4)
@@ -306,6 +303,10 @@ def read_rmat(rmat):
             rmat_rows[-1].update(row_rmat)
 
     return _make_df(rmat_rows, metadata, list(RMAT_KEYS))
+
+
+def read_chrom(path):
+    raise NotImplementedError("CHROM loading is not supported")
 
 
 def parse_rmat_lines(lines):
