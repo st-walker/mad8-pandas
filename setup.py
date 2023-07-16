@@ -7,7 +7,7 @@ long_description = (this_directory / "README.md").read_text()
 
 setup(
     name="mad8-pandas",
-    version="1.1.0",
+    version="1.1.1",
     description="load mad8 output with pandas",
     packages=find_packages(include=["pand8"]),
     install_requires=["pandas", "fortranformat", "numpy"],
